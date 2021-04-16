@@ -1116,36 +1116,56 @@ pragma solidity ^0.8.0;
 contract Marketplace is Ownable{
 
     using Strings for uint256;
-    using Counters for Counters.Counter;
 
-    uint256 private _tokenIdMax;
+
+    uint256 private tokenIdMax;
     uint256 public balances;
-    struct NftTokenInfo {
-        uint256 tokenId;
-        uint256 price;
-        string ipfs;
+
+    struct Images {
+        string image;
+        uint256 amount;
     }
 
-    NftTokenInfo[] public Info;
-
+    mapping( string => Images) public imagesInfo;
+    mapping( uint256 => string) private urlImageToken;
+    mapping( string => uint256[]) private IdTokenFromImage;
+    
     NFTVietHoang public nft;
 
     IERC20 public tokenTransfer;
+
     constructor(address _tokenTransfer, address _nftToken){
         tokenTransfer = IERC20(_tokenTransfer);
         nft = NFTVietHoang(_nftToken);
-        _tokenIdMax = 0;
+        tokenIdMax = 0;
     }
     
-    function createNFT(string memory _ipfs, uint256 _tokenId) public {
-        nft.mint(msg.sender, _ipfs, _tokenId);
+    function mintNFT(string memory _url) public {
+        nft.mint(msg.sender, _url, tokenIdMax);
+        setImage(_url, tokenIdMax);
+        tokenIdMax += 1;
     }
 
-    function buy(string memory _ipfs) public payable{
-       _tokenIdMax += 1;
-        createNFT(_ipfs, _tokenIdMax);
-       Info.push(NftTokenInfo(_tokenIdMax, msg.value, _ipfs));
+    function setImage(string memory _url,uint256 _idToken) internal {
+        // check image include admin added
+        require(imagesInfo[_url].amount != 0, 'no image');
+        //check amount
+        require(IdTokenFromImage[_url].length < imagesInfo[_url].amount, 'amount full');
+        IdTokenFromImage[_url].push(_idToken);
+        urlImageToken[_idToken] = _url;
     }
 
+    function addImage(string memory _url, uint256 _amount) public {
+       imagesInfo[_url].image = _url;
+       imagesInfo[_url].amount = _amount;
+    }
+   
+    function getImage(uint256 _idToken) external view returns(string memory) {
+        return(urlImageToken[_idToken]);
+    }
+    
+    function getAmountMinted(string memory _url) external view returns(uint256){
+        return(IdTokenFromImage[_url].length);
+    }
 }
 
