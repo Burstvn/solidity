@@ -1064,7 +1064,6 @@ pragma solidity ^0.8.0;
         // Base URI
         string private _baseURIextended;
 
-
         constructor(string memory _name, string memory _symbol)
             ERC721(_name, _symbol)
         {
@@ -1116,19 +1115,27 @@ pragma solidity ^0.8.0;
 contract Marketplace is Ownable{
 
     using Strings for uint256;
-
-
-    uint256 private tokenIdMax;
-    uint256 public balances;
-
+    
     struct Images {
         string image;
         uint256 amount;
+        uint256 price;
     }
+    
+    struct Market {
+        uint256 idToken;
+        uint price;
+        address seller;
+    }
+    
+    uint256 private tokenIdMax;
+    uint256 public balances;
+    Market[] public marketPool;
 
     mapping( string => Images) public imagesInfo;
     mapping( uint256 => string) private urlImageToken;
     mapping( string => uint256[]) private IdTokenFromImage;
+    mapping( uint256 => uint256) private tokenPrice;
     
     NFTVietHoang public nft;
 
@@ -1140,32 +1147,103 @@ contract Marketplace is Ownable{
         tokenIdMax = 0;
     }
     
-    function mintNFT(string memory _url) public {
-        nft.mint(msg.sender, _url, tokenIdMax);
+    function mintNFT(string memory _url, address _receiver) internal {
+        require(imagesInfo[_url].amount != 0,'no image in the market');
+        nft.mint(_receiver, _url, tokenIdMax);
         setImage(_url, tokenIdMax);
+        setPrice(tokenIdMax, imagesInfo[_url].price);
         tokenIdMax += 1;
     }
 
+    function addImage(string memory _url, uint256 _amount, uint256 _price) public onlyOwner {
+       imagesInfo[_url].image = _url;
+       imagesInfo[_url].amount = _amount;
+       imagesInfo[_url].price = _price;
+    }
+    
     function setImage(string memory _url,uint256 _idToken) internal {
-        // check image include admin added
-        require(imagesInfo[_url].amount != 0, 'no image');
         //check amount
         require(IdTokenFromImage[_url].length < imagesInfo[_url].amount, 'amount full');
         IdTokenFromImage[_url].push(_idToken);
         urlImageToken[_idToken] = _url;
     }
 
-    function addImage(string memory _url, uint256 _amount) public {
-       imagesInfo[_url].image = _url;
-       imagesInfo[_url].amount = _amount;
-    }
-   
     function getImage(uint256 _idToken) external view returns(string memory) {
         return(urlImageToken[_idToken]);
+    }
+    
+    function setPrice(uint256 _idToken, uint256 _price) internal {
+        tokenPrice[_idToken] = _price;
+    }
+    
+    function getPrice(uint256 _idToken) external view returns(uint256) {
+        return(tokenPrice[_idToken]);
     }
     
     function getAmountMinted(string memory _url) external view returns(uint256){
         return(IdTokenFromImage[_url].length);
     }
-}
 
+    function buy(string memory _url) public payable{
+        require(msg.value >= imagesInfo[_url].amount, 'Not enough balance');
+        mintNFT(_url, msg.sender);
+        balances += msg.value;
+    }
+    
+    function startSale(uint256 _idToken, uint256 _price) public{
+        nft.transferFrom(msg.sender, address(this), _idToken);
+        Market memory nftToken;
+        nftToken.idToken = _idToken;
+        nftToken.price = _price;
+        nftToken.seller = msg.sender;
+        marketPool.push(nftToken);
+    }
+    
+    
+    function cancelSale(uint256 _idToken) public{
+        bool isSaller = false;
+        uint256 index;
+        for(uint256 i = 0; i < marketPool.length; i++){
+            if(marketPool[i].seller == msg.sender && _idToken == marketPool[i].idToken){
+                isSaller = true;
+                index = i;
+            }
+        }
+        
+        require( isSaller == true, 'you not seller');
+        nft.transferFrom(address(this), msg.sender, _idToken);
+
+        //remote token from market
+        marketPool[index] = marketPool[marketPool.length - 1];
+        marketPool.pop();
+    }
+
+    function buyFromMarket(uint256 _idToken, address _seller) public payable{
+        bool check = false;
+        uint256 priceToken;
+        uint256 index;
+        address adrSeller;
+        for(uint256 i = 0; i < marketPool.length; i++){
+            if(marketPool[i].seller == _seller && _idToken == marketPool[i].idToken){
+                check = true;
+                priceToken = marketPool[i].price;
+                index = i;
+                adrSeller = marketPool[i].seller;
+            }
+        }
+        require(check == true && priceToken > 0, 'havent token in market');
+        require(msg.value >= priceToken, 'Not enough balance');
+        require(adrSeller != address(0),'seller is 0x000');
+        balances += msg.value;
+        nft.transferFrom(address(this), msg.sender, _idToken);
+
+        require(priceToken < balances, 'not enough funds');
+        payable(adrSeller).transfer(priceToken);
+        balances -= priceToken;
+
+        //remote token from market
+        marketPool[index] = marketPool[marketPool.length - 1];
+        marketPool.pop();
+    }
+
+}
